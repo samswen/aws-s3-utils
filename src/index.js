@@ -8,7 +8,8 @@ const { listFolderRecursive } = require('@samwen/fs-utils');
 module.exports = {
     updateAwsConfig,
     uploadFileToBucket,
-    uploadFolderToBucket
+    uploadFolderToBucket,
+    downloadFileFromBucket
 };
 
 AWS.config.update({ region: 'us-east-1'});
@@ -28,36 +29,61 @@ function getS3Handle() {
 }
 
 function uploadFileToBucket(path, bucket, key) {
-
-    const file = createReadStream(path);
-    const pass = new stream.PassThrough();
-    file.pipe(pass);
-
-    return new Promise((resolve, reject) => {
-
-        const s3 = getS3Handle();
-        const params = {Bucket: bucket, Key: key, Body: pass};
-        s3.upload(params, function(err) {
-            if (err) {
-                console.error(err);
-                return reject(err);
-            }
-            return resolve();
-        });
+    return new Promise((resolve) => {
+        try {
+            const file = createReadStream(path);
+            const pass = new stream.PassThrough();
+            file.pipe(pass);
+            const s3 = getS3Handle();
+            const params = {Bucket: bucket, Key: key, Body: pass};
+            s3.upload(params, function(err) {
+                if (err) {
+                    console.error(err);
+                    resolve(false);
+                }
+                return resolve(true);
+            });
+        } catch(err) {
+            console.error(err);
+            resolve(false);
+        }
     });
 }
 
 async function uploadFolderToBucket(path, bucket, prefix, concurrency = 8) {
-
-    const list = listFolderRecursive(path);
-    console.log(list);
-    for (let i = 0; i < list.length; i += concurrency) {
-        const promises = [];
-        for (let j = 0; j < concurrency && i + j < list.length; j++) {
-            const full_path = path + '/' + list[i+j];
-            const key = prefix + '/' + list[i+j];
-            promises.push(uploadFileToBucket(full_path, bucket, key));
+    try {
+        const list = listFolderRecursive(path);
+        for (let i = 0; i < list.length; i += concurrency) {
+            const promises = [];
+            for (let j = 0; j < concurrency && i + j < list.length; j++) {
+                const full_path = path + '/' + list[i+j];
+                const key = prefix + '/' + list[i+j];
+                promises.push(uploadFileToBucket(full_path, bucket, key));
+            }
+            await Promise.all(promises);
         }
-        await Promise.all(promises);
+        return true
+    } catch(err) {
+        console.error(err);
+        return false;
     }
+}
+
+function downloadFileFromBucket(path, bucket, key) {
+    return new Promise((resolve) => {
+        const s3 = getS3Handle();
+        const params = {Bucket: bucket, Key: key};
+        const s3_stream = s3.getObject(params).createReadStream();
+        const file_stream = createWriteStream(path);
+        s3_stream.on('error', function(err) {
+            console.error(err);
+            resolve(false);
+        });
+        s3_stream.pipe(file_stream).on('error', function(err) {
+            console.error('File Stream:', err);
+            resolve(false);
+        }).on('close', function() {
+            resolve(true);
+        });
+    });
 }
