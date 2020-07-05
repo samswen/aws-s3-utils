@@ -2,7 +2,7 @@
 
 const AWS = require('aws-sdk');
 const stream = require('stream');
-const { createReadStream } = require('fs');
+const { createReadStream, createWriteStream } = require('fs');
 const { listFolderRecursive } = require('@samwen/fs-utils');
 
 module.exports = {
